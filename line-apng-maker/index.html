@@ -1,0 +1,2599 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LINE APNG スタンプメーカー — 動画→アニメーションスタンプ変換</title>
+  <meta name="description" content="Veo等で生成した動画をLINE規格のAPNGアニメーションスタンプに変換するWebツール">
+  <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-card: #1a1a28;
+      --bg-card-hover: #222236;
+      --border: #2a2a40;
+      --border-active: #6c5ce7;
+      --text-primary: #e8e8f0;
+      --text-secondary: #8888a0;
+      --text-muted: #55556a;
+      --accent: #6c5ce7;
+      --accent-glow: rgba(108, 92, 231, 0.3);
+      --accent-2: #a855f7;
+      --success: #22c55e;
+      --success-bg: rgba(34, 197, 94, 0.12);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.12);
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.12);
+      --gradient-1: linear-gradient(135deg, #6c5ce7 0%, #a855f7 100%);
+      --gradient-2: linear-gradient(135deg, #0a0a0f 0%, #1a1028 100%);
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+      --shadow-glow: 0 0 30px rgba(108, 92, 231, 0.15);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* Header */
+    .header {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+    }
+
+    .header-icon {
+      width: 40px;
+      height: 40px;
+      background: var(--gradient-1);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      box-shadow: var(--shadow-glow);
+    }
+
+    .header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      background: var(--gradient-1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .header-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    /* Layout */
+    .app {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 20px;
+    }
+
+    @media (max-width: 900px) {
+      .main-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Cards */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .card:hover {
+      border-color: var(--border-active);
+    }
+
+    .card-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .card-header .icon {
+      font-size: 16px;
+    }
+
+    .card-body {
+      padding: 18px;
+    }
+
+    /* Drop Zone */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+      background: var(--bg-secondary);
+      position: relative;
+    }
+
+    .drop-zone:hover,
+    .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(108, 92, 231, 0.06);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .drop-zone .icon-large {
+      font-size: 48px;
+      margin-bottom: 12px;
+      opacity: 0.6;
+    }
+
+    .drop-zone p {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    .drop-zone .hint {
+      color: var(--text-muted);
+      font-size: 12px;
+      margin-top: 6px;
+    }
+
+    .drop-zone input {
+      display: none;
+    }
+
+    .drop-zone.has-video {
+      display: none;
+    }
+
+    /* Video Player */
+    .video-container {
+      display: none;
+      position: relative;
+    }
+
+    .video-container.active {
+      display: block;
+    }
+
+    .video-container video {
+      width: 100%;
+      border-radius: var(--radius-sm);
+      background: #000;
+    }
+
+    .video-info {
+      display: flex;
+      gap: 12px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+
+    .video-info .tag {
+      font-size: 11px;
+      padding: 4px 10px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      color: var(--text-secondary);
+    }
+
+    /* Range Slider */
+    .trim-section {
+      margin-top: 14px;
+    }
+
+    .range-track {
+      position: relative;
+      height: 40px;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      cursor: pointer;
+    }
+
+    /* Video wrapper for crop overlay */
+    .video-wrapper {
+      position: relative;
+      display: inline-block;
+      width: 100%;
+    }
+
+    .video-wrapper video {
+      display: block;
+      width: 100%;
+    }
+
+    .range-fill {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      background: rgba(108, 92, 231, 0.2);
+      border-left: 3px solid var(--accent);
+      border-right: 3px solid var(--accent);
+      pointer-events: none;
+    }
+
+    .range-playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--warning);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .trim-inputs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    /* Form Controls */
+    label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    input[type="number"],
+    select {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="number"]:focus,
+    select:focus {
+      border-color: var(--accent);
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      background: var(--bg-secondary);
+      border-radius: 3px;
+      outline: none;
+      margin: 8px 0;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Radio tabs */
+    .radio-tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .radio-tab {
+      flex: 1;
+      padding: 8px 6px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.2s;
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+      user-select: none;
+    }
+
+    .radio-tab:hover {
+      border-color: var(--accent);
+    }
+
+    .radio-tab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
+
+    .chroma-options,
+    .eyedropper-options {
+      display: none;
+    }
+
+    .chroma-options.active,
+    .eyedropper-options.active {
+      display: block;
+    }
+
+    .eyedropper-preview {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .color-swatch {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      border: 2px solid var(--border);
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .color-swatch:hover {
+      border-color: var(--accent);
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-primary {
+      background: var(--gradient-1);
+      color: #fff;
+      box-shadow: 0 4px 16px var(--accent-glow);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px var(--accent-glow);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-secondary {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--accent);
+    }
+
+    .btn-success {
+      background: var(--success);
+      color: #fff;
+    }
+
+    .btn-success:hover {
+      filter: brightness(1.1);
+    }
+
+    .btn-full {
+      width: 100%;
+      justify-content: center;
+    }
+
+    /* Validation */
+    .validation-grid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .validation-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      border: 1px solid var(--border);
+    }
+
+    .validation-item .label-text {
+      color: var(--text-secondary);
+    }
+
+    .validation-item .value {
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .validation-item.pass {
+      border-color: rgba(34, 197, 94, 0.3);
+      background: var(--success-bg);
+    }
+
+    .validation-item.pass .value {
+      color: var(--success);
+    }
+
+    .validation-item.fail {
+      border-color: rgba(239, 68, 68, 0.3);
+      background: var(--danger-bg);
+    }
+
+    .validation-item.fail .value {
+      color: var(--danger);
+    }
+
+    .validation-item.warn {
+      border-color: rgba(245, 158, 11, 0.3);
+      background: var(--warning-bg);
+    }
+
+    .validation-item.warn .value {
+      color: var(--warning);
+    }
+
+    /* Frame Preview */
+    .frame-preview-strip {
+      display: flex;
+      gap: 4px;
+      overflow-x: auto;
+      padding: 8px 0;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .frame-preview-strip canvas {
+      flex-shrink: 0;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .frame-preview-strip canvas:hover {
+      border-color: var(--accent);
+    }
+
+    /* APNG Preview */
+    .apng-preview-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .apng-preview-area img {
+      max-width: 320px;
+      max-height: 270px;
+      border-radius: var(--radius-sm);
+      background-image:
+        linear-gradient(45deg, #2a2a40 25%, transparent 25%),
+        linear-gradient(-45deg, #2a2a40 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #2a2a40 75%),
+        linear-gradient(-45deg, transparent 75%, #2a2a40 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+      image-rendering: auto;
+    }
+
+    .apng-actions {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+    }
+
+    .apng-actions .btn {
+      flex: 1;
+      justify-content: center;
+    }
+
+    /* Progress */
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: var(--bg-secondary);
+      border-radius: 2px;
+      overflow: hidden;
+      margin: 12px 0;
+      display: none;
+    }
+
+    .progress-bar.active {
+      display: block;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--gradient-1);
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    .status-text {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+      min-height: 18px;
+    }
+
+    /* Pick canvas overlay */
+    .pick-canvas-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+      z-index: 10;
+      display: none;
+    }
+
+    /* Change video button */
+    .change-video-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 5;
+      padding: 6px 12px;
+      font-size: 11px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+      transition: all 0.2s;
+    }
+
+    .change-video-btn:hover {
+      background: rgba(0, 0, 0, 0.8);
+      border-color: var(--accent);
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    /* Tooltip */
+    .tooltip {
+      position: relative;
+    }
+
+    .tooltip::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: 120%;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 4px 8px;
+      background: #333;
+      color: #fff;
+      font-size: 11px;
+      border-radius: 4px;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+
+    .tooltip:hover::after {
+      opacity: 1;
+    }
+
+    /* Animations */
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .card {
+      animation: fadeIn 0.4s ease-out;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.5;
+      }
+    }
+
+    .processing {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    /* Resize section */
+    .resize-info {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Save settings */
+    .save-folder-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .save-folder-row .folder-path {
+      flex: 1;
+      font-size: 11px;
+      color: var(--text-muted);
+      padding: 6px 10px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .save-folder-row .folder-path.active {
+      color: var(--success);
+    }
+
+    .number-control {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin: 10px 0;
+    }
+
+    .number-control button {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-size: 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+
+    .number-control button:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .number-display {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--accent);
+      min-width: 56px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .number-display small {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+    }
+
+    .toggle-row label {
+      font-size: 13px;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle-switch.on {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .toggle-switch.on::after {
+      transform: translateX(20px);
+    }
+
+    .emoji-spec {
+      font-size: 10px;
+      color: var(--text-muted);
+      padding: 4px 0;
+    }
+
+    .save-result {
+      margin-top: 8px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      display: none;
+    }
+
+    .save-result.show {
+      display: block;
+    }
+
+    .save-result.success {
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      color: var(--success);
+    }
+
+    /* Crop controls */
+    .crop-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .crop-slider-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .crop-slider-row .crop-label {
+      min-width: 24px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .crop-slider-row input[type="range"] {
+      flex: 1;
+    }
+
+    .crop-slider-row .crop-val {
+      min-width: 36px;
+      text-align: right;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .crop-result {
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 6px;
+      border: 1px dashed var(--border);
+      border-radius: 6px;
+    }
+
+    /* Crop overlay on video */
+    .crop-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+      z-index: 3;
+      display: none;
+    }
+
+    .crop-overlay.active {
+      display: block;
+    }
+
+    .crop-shade {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.55);
+    }
+
+    .crop-border {
+      position: absolute;
+      border: 2px dashed rgba(108, 92, 231, 0.8);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+    }
+
+    .frame-timeline {
+      display: none;
+      margin-top: 8px;
+    }
+
+    .frame-timeline.active {
+      display: block;
+    }
+
+    .frame-timeline-label {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .frame-timeline-bar {
+      display: flex;
+      height: 28px;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+    }
+
+    .frame-marker {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.8);
+      border-right: 1px solid rgba(255, 255, 255, 0.15);
+      cursor: col-resize;
+      transition: background 0.15s;
+      user-select: none;
+      min-width: 8px;
+    }
+
+    .frame-marker:last-child {
+      border-right: none;
+    }
+
+    .frame-marker:nth-child(odd) {
+      background: rgba(108, 92, 231, 0.35);
+    }
+
+    .frame-marker:nth-child(even) {
+      background: rgba(168, 85, 247, 0.3);
+    }
+
+    .frame-marker:hover {
+      filter: brightness(1.3);
+    }
+
+    .frame-marker.dragging {
+      filter: brightness(1.5);
+    }
+
+    /* Per-frame delay editor */
+    .frame-delay-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 8px;
+    }
+
+    .frame-delay-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      background: var(--bg-secondary);
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .frame-delay-item canvas {
+      flex-shrink: 0;
+      border-radius: 3px;
+    }
+
+    .frame-delay-item .frame-label {
+      color: var(--text-secondary);
+      min-width: 22px;
+      font-weight: 600;
+      font-size: 11px;
+    }
+
+    .frame-delay-item input[type="range"] {
+      flex: 1;
+      height: 4px;
+      margin: 0;
+    }
+
+    .frame-delay-item .delay-val {
+      min-width: 45px;
+      text-align: right;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .delay-total {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      margin-top: 6px;
+      text-align: center;
+    }
+  </style>
+</head>
+
+<body>
+
+  <header class="header">
+    <div class="header-icon">🎬</div>
+    <div>
+      <h1>LINE APNG スタンプメーカー</h1>
+      <div class="header-sub">動画 → アニメーションスタンプ変換</div>
+    </div>
+  </header>
+
+  <main class="app">
+    <!-- Drop Zone -->
+    <div class="card" id="dropCard">
+      <div class="card-body">
+        <div class="drop-zone" id="dropZone">
+          <div class="icon-large">📁</div>
+          <p><strong>動画ファイルをドラッグ&ドロップ</strong></p>
+          <p class="hint">またはクリックしてファイルを選択（MP4 / WebM）</p>
+          <input type="file" id="fileInput" accept="video/mp4,video/webm,video/*">
+        </div>
+        <div class="video-container" id="videoContainer">
+          <button class="change-video-btn" id="changeVideoBtn">🔄 動画を変更</button>
+          <div class="video-wrapper" id="videoWrapper">
+            <canvas id="pickCanvas" class="pick-canvas-overlay"></canvas>
+            <div class="crop-overlay" id="cropOverlay">
+              <div class="crop-shade" id="cropShadeTop"></div>
+              <div class="crop-shade" id="cropShadeBottom"></div>
+              <div class="crop-shade" id="cropShadeLeft"></div>
+              <div class="crop-shade" id="cropShadeRight"></div>
+              <div class="crop-border" id="cropBorder"></div>
+            </div>
+            <video id="videoPlayer" controls></video>
+          </div>
+          <div class="video-info" id="videoInfo"></div>
+          <div class="trim-section">
+            <label>トリミング範囲</label>
+            <div class="range-track" id="rangeTrack">
+              <div class="range-fill" id="rangeFill"></div>
+              <div class="range-playhead" id="rangePlayhead"></div>
+            </div>
+            <div class="frame-timeline" id="frameTimeline">
+              <div class="frame-timeline-label">
+                <span>⚡ フレーム間隔（ドラッグで調整）</span>
+                <span id="frameTimelineTotal"></span>
+              </div>
+              <div class="frame-timeline-bar" id="frameTimelineBar"></div>
+            </div>
+            <div class="trim-inputs">
+              <div>
+                <label>開始 (秒)</label>
+                <input type="number" id="trimStart" value="0" min="0" step="0.1">
+              </div>
+              <div>
+                <label>終了 (秒)</label>
+                <input type="number" id="trimEnd" value="0" min="0" step="0.1">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main-grid">
+      <!-- Left Column: Settings -->
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+
+        <!-- Frame Settings -->
+        <div class="card">
+          <div class="card-header"><span class="icon">🎞️</span> フレーム設定</div>
+          <div class="card-body">
+            <div class="form-row">
+              <div>
+                <label>フレーム数 (5-20)</label>
+                <input type="number" id="frameCount" value="10" min="5" max="20">
+              </div>
+              <div>
+                <label>再生時間 (1ループ分)</label>
+                <select id="playDuration">
+                  <option value="1">1秒</option>
+                  <option value="2" selected>2秒</option>
+                  <option value="3">3秒</option>
+                  <option value="4">4秒</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div>
+                <label>ループ回数 (1-4)</label>
+                <select id="loopCount">
+                  <option value="1">1回</option>
+                  <option value="2" selected>2回</option>
+                  <option value="3">3回</option>
+                  <option value="4">4回</option>
+                </select>
+              </div>
+              <div>
+                <label>合計再生時間</label>
+                <div id="totalDurationDisplay"
+                  style="padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;color:var(--accent);font-weight:600;">
+                  2s × 2 = 4s</div>
+              </div>
+            </div>
+            <div class="form-row">
+              <div>
+                <label>出力幅 (px)</label>
+                <input type="number" id="outputWidth" value="320" min="10" max="320">
+              </div>
+              <div>
+                <label>出力高さ (px)</label>
+                <input type="number" id="outputHeight" value="270" min="10" max="270">
+              </div>
+            </div>
+            <div class="resize-info">※ アスペクト比を維持して最大 320×270px に収めます。合計再生時間は1〜4秒以内にしてください。</div>
+          </div>
+        </div>
+
+        <!-- Crop -->
+        <div class="card">
+          <div class="card-header"><span class="icon">✂️</span> クロップ（余白除去）</div>
+          <div class="card-body">
+            <div class="crop-controls">
+              <div class="crop-slider-row">
+                <span class="crop-label">上</span>
+                <input type="range" id="cropTop" min="0" max="45" value="0" step="1">
+                <span class="crop-val" id="cropTopVal">0%</span>
+              </div>
+              <div class="crop-slider-row">
+                <span class="crop-label">下</span>
+                <input type="range" id="cropBottom" min="0" max="45" value="0" step="1">
+                <span class="crop-val" id="cropBottomVal">0%</span>
+              </div>
+              <div class="crop-slider-row">
+                <span class="crop-label">左</span>
+                <input type="range" id="cropLeft" min="0" max="45" value="0" step="1">
+                <span class="crop-val" id="cropLeftVal">0%</span>
+              </div>
+              <div class="crop-slider-row">
+                <span class="crop-label">右</span>
+                <input type="range" id="cropRight" min="0" max="45" value="0" step="1">
+                <span class="crop-val" id="cropRightVal">0%</span>
+              </div>
+              <div class="crop-result" id="cropPreviewInfo">クロップなし — そのまま出力</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Background Removal -->
+        <div class="card">
+          <div class="card-header"><span class="icon">🎨</span> 背景除去</div>
+          <div class="card-body">
+            <div class="radio-tabs" id="bgModeTabs">
+              <div class="radio-tab active" data-mode="none">なし</div>
+              <div class="radio-tab" data-mode="chroma">クロマキー</div>
+              <div class="radio-tab" data-mode="eyedropper">スポイト</div>
+            </div>
+
+            <div class="chroma-options" id="chromaOptions">
+              <div class="form-group">
+                <label>キー色</label>
+                <div class="radio-tabs" id="chromaColorTabs">
+                  <div class="radio-tab active" data-color="green">🟢 緑</div>
+                  <div class="radio-tab" data-color="blue">🔵 青</div>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>感度: <span id="chromaSensValue">40</span></label>
+                <input type="range" id="chromaSens" min="5" max="80" value="40">
+              </div>
+              <div class="form-group">
+                <label>エッジぼかし: <span id="chromaEdgeValue">2</span>px</label>
+                <input type="range" id="chromaEdge" min="0" max="10" value="2">
+              </div>
+            </div>
+
+            <div class="eyedropper-options" id="eyedropperOptions">
+              <div class="eyedropper-preview">
+                <div class="color-swatch" id="pickedColorSwatch" style="background: #888" title="動画上でクリックして色を選択"></div>
+                <div>
+                  <div style="font-size: 13px; font-weight: 500;" id="pickedColorLabel">動画をクリックして色を選択</div>
+                  <div style="font-size: 11px; color: var(--text-muted);" id="pickedColorHex">—</div>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>許容範囲: <span id="eyedropperTolValue">30</span></label>
+                <input type="range" id="eyedropperTol" min="5" max="80" value="30">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Frame Preview -->
+        <div class="card">
+          <div class="card-header"><span class="icon">🖼️</span> フレームプレビュー</div>
+          <div class="card-body">
+            <button class="btn btn-secondary btn-full" id="extractBtn" disabled>
+              ⚡ フレーム抽出プレビュー
+            </button>
+            <div class="progress-bar" id="extractProgress">
+              <div class="progress-fill" id="extractProgressFill"></div>
+            </div>
+            <div class="status-text" id="extractStatus"></div>
+            <div class="frame-preview-strip" id="frameStrip"></div>
+            <div id="firstFrameSection"
+              style="display:none;margin-top:10px;padding:10px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border)">
+              <label style="font-weight:600;font-size:12px;display:block;margin-bottom:6px">🎬
+                1フレーム目（メイン画像）を別で選択</label>
+              <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px">LINE STOREで静止画として表示されるフレームです</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="range" id="firstFrameTime" min="0" max="100" value="0" step="0.01" style="flex:1">
+                <span id="firstFrameTimeVal"
+                  style="font-size:11px;min-width:40px;text-align:right;font-variant-numeric:tabular-nums">0.0s</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+                <canvas id="firstFramePreview"
+                  style="height:50px;border-radius:4px;border:2px solid var(--accent)"></canvas>
+                <button class="btn btn-secondary" id="captureFirstFrameBtn" style="font-size:11px;white-space:nowrap">📸
+                  1フレーム目を取り直す</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Per-Frame Delay -->
+        <div class="card" id="delayCard" style="display:none;">
+          <div class="card-header"><span class="icon">⏱️</span> フレーム間隔の調整</div>
+          <div class="card-body">
+            <div class="frame-delay-list" id="frameDelayList"></div>
+            <div class="delay-total" id="delayTotal">合計: —</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Validation & Output -->
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+        <!-- Validation -->
+        <div class="card">
+          <div class="card-header"><span class="icon">✅</span> LINE規格チェック</div>
+          <div class="card-body">
+            <div class="validation-grid" id="validationGrid">
+              <div class="validation-item" id="valSize">
+                <span class="label-text">サイズ</span>
+                <span class="value">—</span>
+              </div>
+              <div class="validation-item" id="valFrames">
+                <span class="label-text">フレーム数</span>
+                <span class="value">—</span>
+              </div>
+              <div class="validation-item" id="valFileSize">
+                <span class="label-text">ファイル容量</span>
+                <span class="value">—</span>
+              </div>
+              <div class="validation-item" id="valDuration">
+                <span class="label-text">再生時間</span>
+                <span class="value">—</span>
+              </div>
+              <div class="validation-item" id="valLoop">
+                <span class="label-text">ループ</span>
+                <span class="value">—</span>
+              </div>
+              <div class="validation-item" id="valBg">
+                <span class="label-text">背景透過</span>
+                <span class="value">—</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Generate & Save -->
+        <div class="card">
+          <div class="card-header"><span class="icon">🚀</span> APNG生成 & 保存</div>
+          <div class="card-body">
+            <!-- Save Settings -->
+            <div style="margin-bottom: 12px;">
+              <label style="font-weight:600;margin-bottom:6px;display:block">📁 スタンプ保存先</label>
+              <div class="save-folder-row">
+                <span class="folder-path" id="stampFolderPath">未選択</span>
+                <button class="btn btn-secondary" id="pickStampFolderBtn" style="white-space:nowrap">📂 選択</button>
+              </div>
+              <div class="toggle-row">
+                <label>😀 絵文字も同時生成 (180×180px)</label>
+                <div class="toggle-switch" id="emojiToggle"></div>
+              </div>
+              <div class="emoji-spec">LINE絵文字規格: 180×180px / APNG / 300KB以下 / 5-20フレーム</div>
+              <div id="emojiFolderSection" style="display:none;margin-top:6px">
+                <label style="font-weight:600;margin-bottom:6px;display:block">📁 絵文字保存先</label>
+                <div class="save-folder-row">
+                  <span class="folder-path" id="emojiFolderPath">未選択</span>
+                  <button class="btn btn-secondary" id="pickEmojiFolderBtn" style="white-space:nowrap">📂 選択</button>
+                </div>
+              </div>
+            </div>
+            <!-- Number Control -->
+            <label style="font-weight:600;display:block;text-align:center">ファイル番号 (01〜24)</label>
+            <div class="number-control">
+              <button id="numPrev">◀</button>
+              <div class="number-display" id="numDisplay">01<small>/24</small></div>
+              <button id="numNext">▶</button>
+            </div>
+            <!-- Generate -->
+            <button class="btn btn-primary btn-full" id="generateBtn" disabled>
+              ✨ APNGを生成 & 保存
+            </button>
+            <div class="progress-bar" id="genProgress">
+              <div class="progress-fill" id="genProgressFill"></div>
+            </div>
+            <div class="status-text" id="genStatus"></div>
+            <div class="save-result" id="saveResult"></div>
+            <div class="apng-preview-area" id="apngPreview" style="display:none;">
+              <img id="apngImage" alt="APNG Preview">
+              <div class="apng-actions">
+                <button class="btn btn-success" id="downloadBtn">
+                  💾 ダウンロード
+                </button>
+                <button class="btn btn-secondary" id="regenerateBtn">
+                  🔄 再生成
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Hidden canvases -->
+  <canvas id="workCanvas" style="display:none;"></canvas>
+
+  <script>
+    (() => {
+      // ====== State ======
+      const state = {
+        videoFile: null,
+        videoLoaded: false,
+        duration: 0,
+        trimStart: 0,
+        trimEnd: 0,
+        playDuration: 2,  // 1, 2, 3, or 4 seconds (exact)
+        frames: [],       // Array of ImageData (RGBA)
+        frameDelays: [],   // Per-frame delays in ms
+        cropTopPct: 0,     // % values 0-45
+        cropRightPct: 0,
+        cropBottomPct: 0,
+        cropLeftPct: 0,
+        bgMode: 'none',   // none | chroma | eyedropper
+        chromaColor: 'green',
+        chromaSens: 40,
+        chromaEdge: 2,
+        pickedColor: null, // {r,g,b}
+        eyedropperTol: 30,
+        frameCount: 10,
+        loopCount: 2,
+        outputWidth: 320,
+        outputHeight: 270,
+        apngBlob: null,
+        emojiApngBlob: null,
+        currentNumber: 1,
+        generateEmoji: false,
+        stampDirHandle: null,
+        emojiDirHandle: null,
+      };
+
+      // ====== DOM refs ======
+      const $ = id => document.getElementById(id);
+      const dropZone = $('dropZone');
+      const fileInput = $('fileInput');
+      const videoPlayer = $('videoPlayer');
+      const videoContainer = $('videoContainer');
+      const videoInfo = $('videoInfo');
+      const rangeTrack = $('rangeTrack');
+      const rangeFill = $('rangeFill');
+      const rangePlayhead = $('rangePlayhead');
+      const trimStartIn = $('trimStart');
+      const trimEndIn = $('trimEnd');
+      const frameCountIn = $('frameCount');
+      const playDurationIn = $('playDuration');
+      const loopCountIn = $('loopCount');
+      const outputWidthIn = $('outputWidth');
+      const outputHeightIn = $('outputHeight');
+      const bgModeTabs = $('bgModeTabs');
+      const chromaOptions = $('chromaOptions');
+      const eyedropperOptions = $('eyedropperOptions');
+      const chromaSensIn = $('chromaSens');
+      const chromaEdgeIn = $('chromaEdge');
+      const eyedropperTolIn = $('eyedropperTol');
+      const pickedColorSwatch = $('pickedColorSwatch');
+      const pickedColorLabel = $('pickedColorLabel');
+      const pickedColorHex = $('pickedColorHex');
+      const pickCanvas = $('pickCanvas');
+      const extractBtn = $('extractBtn');
+      const extractProgress = $('extractProgress');
+      const extractProgressFill = $('extractProgressFill');
+      const extractStatus = $('extractStatus');
+      const frameStrip = $('frameStrip');
+      const generateBtn = $('generateBtn');
+      const genProgress = $('genProgress');
+      const genProgressFill = $('genProgressFill');
+      const genStatus = $('genStatus');
+      const apngPreview = $('apngPreview');
+      const apngImage = $('apngImage');
+      const downloadBtn = $('downloadBtn');
+      const workCanvas = $('workCanvas');
+      const workCtx = workCanvas.getContext('2d', { willReadFrequently: true });
+
+      // ====== File Input ======
+      dropZone.addEventListener('click', () => fileInput.click());
+      dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+      dropZone.addEventListener('drop', e => {
+        e.preventDefault(); dropZone.classList.remove('drag-over');
+        if (e.dataTransfer.files.length) loadVideo(e.dataTransfer.files[0]);
+      });
+      fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) loadVideo(fileInput.files[0]);
+      });
+      $('changeVideoBtn').addEventListener('click', () => {
+        fileInput.value = '';
+        fileInput.click();
+      });
+
+      function loadVideo(file) {
+        state.videoFile = file;
+        const url = URL.createObjectURL(file);
+        videoPlayer.src = url;
+        videoPlayer.onloadedmetadata = () => {
+          state.duration = videoPlayer.duration;
+          state.trimStart = 0;
+          // Auto-set trim end based on selected play duration
+          state.trimEnd = Math.min(videoPlayer.duration, state.playDuration);
+          trimStartIn.value = state.trimStart.toFixed(1);
+          trimStartIn.max = videoPlayer.duration;
+          trimEndIn.value = state.trimEnd.toFixed(1);
+          trimEndIn.max = videoPlayer.duration;
+
+          // Compute output size maintaining aspect ratio within 320x270
+          const vw = videoPlayer.videoWidth;
+          const vh = videoPlayer.videoHeight;
+          const scale = Math.min(320 / vw, 270 / vh, 1);
+          state.outputWidth = Math.round(vw * scale);
+          state.outputHeight = Math.round(vh * scale);
+          // Ensure even numbers
+          if (state.outputWidth % 2 !== 0) state.outputWidth--;
+          if (state.outputHeight % 2 !== 0) state.outputHeight--;
+          outputWidthIn.value = state.outputWidth;
+          outputHeightIn.value = state.outputHeight;
+
+          videoInfo.innerHTML = `
+        <span class="tag">📐 ${vw}×${vh}px</span>
+        <span class="tag">⏱ ${videoPlayer.duration.toFixed(1)}秒</span>
+        <span class="tag">📦 ${(file.size / 1024).toFixed(0)}KB</span>
+        <span class="tag">📁 ${file.type || file.name.split('.').pop()}</span>
+      `;
+
+          dropZone.classList.add('has-video');
+          videoContainer.classList.add('active');
+          state.videoLoaded = true;
+          extractBtn.disabled = false;
+
+          // Auto center-square crop
+          if (vw !== vh) {
+            if (vw > vh) {
+              // Landscape: crop left and right equally
+              const cropPct = Math.round(((vw - vh) / (2 * vw)) * 100);
+              state.cropLeftPct = cropPct;
+              state.cropRightPct = cropPct;
+              state.cropTopPct = 0;
+              state.cropBottomPct = 0;
+            } else {
+              // Portrait: crop top and bottom equally
+              const cropPct = Math.round(((vh - vw) / (2 * vh)) * 100);
+              state.cropTopPct = cropPct;
+              state.cropBottomPct = cropPct;
+              state.cropLeftPct = 0;
+              state.cropRightPct = 0;
+            }
+            // Update sliders
+            $('cropTop').value = state.cropTopPct;
+            $('cropTopVal').textContent = state.cropTopPct + '%';
+            $('cropBottom').value = state.cropBottomPct;
+            $('cropBottomVal').textContent = state.cropBottomPct + '%';
+            $('cropLeft').value = state.cropLeftPct;
+            $('cropLeftVal').textContent = state.cropLeftPct + '%';
+            $('cropRight').value = state.cropRightPct;
+            $('cropRightVal').textContent = state.cropRightPct + '%';
+            updateCropPreview();
+            updateCropOverlay();
+          }
+
+          updateValidation();
+        };
+      }
+
+      // ====== Trim Controls ======
+      trimStartIn.addEventListener('input', () => {
+        state.trimStart = parseFloat(trimStartIn.value) || 0;
+        updateTrimUI();
+        updateValidation();
+      });
+      trimEndIn.addEventListener('input', () => {
+        state.trimEnd = parseFloat(trimEndIn.value) || 0;
+        updateTrimUI();
+        updateValidation();
+      });
+
+      function updateTrimUI() {
+        if (!state.duration) return;
+        const left = (state.trimStart / state.duration) * 100;
+        const right = (state.trimEnd / state.duration) * 100;
+        rangeFill.style.left = left + '%';
+        rangeFill.style.width = (right - left) + '%';
+      }
+
+      rangeTrack.addEventListener('click', e => {
+        if (!state.duration) return;
+        const rect = rangeTrack.getBoundingClientRect();
+        const pct = (e.clientX - rect.left) / rect.width;
+        const time = pct * state.duration;
+        videoPlayer.currentTime = time;
+      });
+
+      videoPlayer.addEventListener('timeupdate', () => {
+        if (!state.duration) return;
+        const pct = (videoPlayer.currentTime / state.duration) * 100;
+        rangePlayhead.style.left = pct + '%';
+      });
+
+      // ====== Frame & Loop Settings ======
+      frameCountIn.addEventListener('input', () => {
+        state.frameCount = Math.max(5, Math.min(20, parseInt(frameCountIn.value) || 10));
+        updateValidation();
+      });
+      playDurationIn.addEventListener('change', () => {
+        state.playDuration = parseInt(playDurationIn.value);
+        // Auto-adjust trim end if video loaded
+        if (state.videoLoaded) {
+          state.trimEnd = Math.min(state.duration, state.trimStart + state.playDuration);
+          trimEndIn.value = state.trimEnd.toFixed(1);
+          updateTrimUI();
+        }
+        updateTotalDurationDisplay();
+        updateValidation();
+      });
+      loopCountIn.addEventListener('change', () => {
+        state.loopCount = parseInt(loopCountIn.value);
+        updateTotalDurationDisplay();
+        updateValidation();
+      });
+      outputWidthIn.addEventListener('input', () => {
+        state.outputWidth = Math.max(10, Math.min(320, parseInt(outputWidthIn.value) || 320));
+        updateCropPreview();
+        updateValidation();
+      });
+      outputHeightIn.addEventListener('input', () => {
+        state.outputHeight = Math.max(10, Math.min(270, parseInt(outputHeightIn.value) || 270));
+        updateCropPreview();
+        updateValidation();
+      });
+
+      // ====== Crop Controls ======
+      ['cropTop', 'cropRight', 'cropBottom', 'cropLeft'].forEach(dir => {
+        const slider = $(dir);
+        const valEl = $(dir + 'Val');
+        const stateKey = dir + 'Pct';
+        slider.addEventListener('input', () => {
+          state[stateKey] = parseInt(slider.value) || 0;
+          valEl.textContent = state[stateKey] + '%';
+          updateCropPreview();
+          updateCropOverlay();
+        });
+      });
+
+      function updateCropPreview() {
+        const el = $('cropPreviewInfo');
+        const anyActive = state.cropTopPct || state.cropBottomPct || state.cropLeftPct || state.cropRightPct;
+        if (!anyActive) {
+          el.textContent = 'クロップなし — そのまま出力';
+          el.style.color = '';
+          return;
+        }
+        if (!state.videoLoaded) {
+          el.textContent = `上${state.cropTopPct}% 下${state.cropBottomPct}% 左${state.cropLeftPct}% 右${state.cropRightPct}%`;
+          return;
+        }
+        const vw = videoPlayer.videoWidth;
+        const vh = videoPlayer.videoHeight;
+        const cx = Math.round(vw * state.cropLeftPct / 100);
+        const cy = Math.round(vh * state.cropTopPct / 100);
+        const cw = vw - cx - Math.round(vw * state.cropRightPct / 100);
+        const ch = vh - cy - Math.round(vh * state.cropBottomPct / 100);
+        if (cw <= 0 || ch <= 0) {
+          el.innerHTML = '<span style="color:var(--danger)">無効なクロップ</span>';
+          return;
+        }
+        const scale = Math.min(320 / cw, 270 / ch, 1);
+        const ow = Math.round(cw * scale);
+        const oh = Math.round(ch * scale);
+        el.textContent = `${cw}×${ch}px → ${ow}×${oh}px`;
+        el.style.color = 'var(--success)';
+      }
+
+      function updateCropOverlay() {
+        const overlay = $('cropOverlay');
+        const anyActive = state.cropTopPct || state.cropBottomPct || state.cropLeftPct || state.cropRightPct;
+        overlay.classList.toggle('active', anyActive > 0);
+        if (!anyActive) return;
+
+        const t = state.cropTopPct;
+        const b = state.cropBottomPct;
+        const l = state.cropLeftPct;
+        const r = state.cropRightPct;
+
+        // Top shade
+        const st = $('cropShadeTop');
+        st.style.cssText = `top:0;left:0;right:0;height:${t}%`;
+        // Bottom shade
+        const sb = $('cropShadeBottom');
+        sb.style.cssText = `bottom:0;left:0;right:0;height:${b}%`;
+        // Left shade
+        const sl = $('cropShadeLeft');
+        sl.style.cssText = `top:${t}%;left:0;bottom:${b}%;width:${l}%`;
+        // Right shade
+        const sr = $('cropShadeRight');
+        sr.style.cssText = `top:${t}%;right:0;bottom:${b}%;width:${r}%`;
+        // Border
+        const bd = $('cropBorder');
+        bd.style.cssText = `top:${t}%;left:${l}%;right:${r}%;bottom:${b}%`;
+      }
+
+      function updateTotalDurationDisplay() {
+        const total = state.playDuration * state.loopCount;
+        const ok = total >= 1 && total <= 4;
+        const el = $('totalDurationDisplay');
+        el.textContent = `${state.playDuration}s × ${state.loopCount} = ${total}s`;
+        el.style.color = ok ? 'var(--success)' : 'var(--danger)';
+      }
+
+      // ====== Background Mode ======
+      bgModeTabs.querySelectorAll('.radio-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          bgModeTabs.querySelectorAll('.radio-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          state.bgMode = tab.dataset.mode;
+          chromaOptions.classList.toggle('active', state.bgMode === 'chroma');
+          eyedropperOptions.classList.toggle('active', state.bgMode === 'eyedropper');
+          pickCanvas.style.display = state.bgMode === 'eyedropper' ? 'block' : 'none';
+        });
+      });
+
+      $('chromaColorTabs').querySelectorAll('.radio-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          $('chromaColorTabs').querySelectorAll('.radio-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          state.chromaColor = tab.dataset.color;
+        });
+      });
+
+      chromaSensIn.addEventListener('input', () => {
+        state.chromaSens = parseInt(chromaSensIn.value);
+        $('chromaSensValue').textContent = state.chromaSens;
+      });
+      chromaEdgeIn.addEventListener('input', () => {
+        state.chromaEdge = parseInt(chromaEdgeIn.value);
+        $('chromaEdgeValue').textContent = state.chromaEdge;
+      });
+      eyedropperTolIn.addEventListener('input', () => {
+        state.eyedropperTol = parseInt(eyedropperTolIn.value);
+        $('eyedropperTolValue').textContent = state.eyedropperTol;
+      });
+
+      // ====== Eyedropper ======
+      pickCanvas.addEventListener('click', e => {
+        const rect = pickCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        // Draw current frame to work canvas at display size
+        const dispW = rect.width;
+        const dispH = rect.height;
+        workCanvas.width = videoPlayer.videoWidth;
+        workCanvas.height = videoPlayer.videoHeight;
+        workCtx.drawImage(videoPlayer, 0, 0);
+
+        // Scale coords to actual video pixels
+        const sx = Math.floor(x * videoPlayer.videoWidth / dispW);
+        const sy = Math.floor(y * videoPlayer.videoHeight / dispH);
+        const pixel = workCtx.getImageData(sx, sy, 1, 1).data;
+
+        state.pickedColor = { r: pixel[0], g: pixel[1], b: pixel[2] };
+        const hex = '#' + [pixel[0], pixel[1], pixel[2]].map(v => v.toString(16).padStart(2, '0')).join('');
+        pickedColorSwatch.style.background = hex;
+        pickedColorLabel.textContent = '選択済み';
+        pickedColorHex.textContent = `${hex} (R:${pixel[0]} G:${pixel[1]} B:${pixel[2]})`;
+      });
+
+      // ====== Frame Extraction ======
+      extractBtn.addEventListener('click', extractFrames);
+
+      async function extractFrames() {
+        if (!state.videoLoaded) return;
+        extractBtn.disabled = true;
+        extractProgress.classList.add('active');
+        frameStrip.innerHTML = '';
+        state.frames = [];
+        state.frameDelays = [];
+        extractStatus.textContent = 'フレームを抽出中...';
+
+        // Compute crop values from percentages
+        const vw = videoPlayer.videoWidth;
+        const vh = videoPlayer.videoHeight;
+        const cx = Math.round(vw * state.cropLeftPct / 100);
+        const cy = Math.round(vh * state.cropTopPct / 100);
+        const cw = vw - cx - Math.round(vw * state.cropRightPct / 100);
+        const ch = vh - cy - Math.round(vh * state.cropBottomPct / 100);
+
+        if (cw <= 0 || ch <= 0) {
+          extractStatus.textContent = '⚠️ クロップ値が大きすぎます';
+          extractBtn.disabled = false;
+          extractProgress.classList.remove('active');
+          return;
+        }
+
+        // Calculate output size from cropped area
+        const scale = Math.min(320 / cw, 270 / ch, 1);
+        const w = Math.round(cw * scale);
+        const h = Math.round(ch * scale);
+        state.outputWidth = w;
+        state.outputHeight = h;
+        outputWidthIn.value = w;
+        outputHeightIn.value = h;
+
+        workCanvas.width = w;
+        workCanvas.height = h;
+
+        const numFrames = state.frameCount;
+        const clipDuration = state.trimEnd - state.trimStart;
+        if (clipDuration <= 0) {
+          extractStatus.textContent = '⚠️ トリミング範囲を正しく設定してください';
+          extractBtn.disabled = false;
+          extractProgress.classList.remove('active');
+          return;
+        }
+
+        // Compute initial delays
+        const exactDurationMs = state.playDuration * 1000;
+        const baseDelay = Math.floor(exactDurationMs / numFrames);
+        const remainder = exactDurationMs - (baseDelay * numFrames);
+
+        for (let i = 0; i < numFrames; i++) {
+          const t = state.trimStart + (clipDuration * i / numFrames);
+          extractProgressFill.style.width = ((i / numFrames) * 100) + '%';
+          extractStatus.textContent = `フレーム ${i + 1}/${numFrames} を抽出中...`;
+
+          const frameData = await grabFrame(t, w, h, cx, cy, cw, ch);
+          state.frames.push(frameData);
+          state.frameDelays.push(baseDelay + (i < remainder ? 1 : 0));
+
+          // Create preview thumbnail
+          const thumbCanvas = document.createElement('canvas');
+          const thumbH = 60;
+          const thumbW = Math.round(w * thumbH / h);
+          thumbCanvas.width = thumbW;
+          thumbCanvas.height = thumbH;
+          const tCtx = thumbCanvas.getContext('2d');
+          drawCheckerboard(tCtx, thumbW, thumbH, 6);
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = w; tempCanvas.height = h;
+          tempCanvas.getContext('2d').putImageData(frameData, 0, 0);
+          tCtx.drawImage(tempCanvas, 0, 0, thumbW, thumbH);
+          frameStrip.appendChild(thumbCanvas);
+        }
+
+        extractProgressFill.style.width = '100%';
+        extractStatus.textContent = `✅ ${numFrames}フレーム抽出完了`;
+        extractBtn.disabled = false;
+        generateBtn.disabled = false;
+        setTimeout(() => { extractProgress.classList.remove('active'); }, 500);
+
+        // Show first frame selector
+        const firstFrameSection = $('firstFrameSection');
+        firstFrameSection.style.display = 'block';
+        const firstFrameSlider = $('firstFrameTime');
+        firstFrameSlider.min = state.trimStart;
+        firstFrameSlider.max = state.trimEnd;
+        firstFrameSlider.step = '0.01';
+        firstFrameSlider.value = state.trimStart;
+        $('firstFrameTimeVal').textContent = state.trimStart.toFixed(1) + 's';
+        // Show initial first frame preview
+        updateFirstFramePreview(w, h, cx, cy, cw, ch);
+
+        // Build per-frame delay editor
+        buildDelayEditor(w, h);
+        updateValidation();
+      }
+
+      function buildDelayEditor(w, h) {
+        const delayCard = $('delayCard');
+        delayCard.style.display = 'block';
+        const list = $('frameDelayList');
+        list.innerHTML = '';
+
+        const targetMs = state.playDuration * 1000;
+        const maxPerFrame = Math.min(targetMs, 2000);
+
+        // -- Build timeline bar --
+        const timeline = $('frameTimeline');
+        timeline.classList.add('active');
+        const bar = $('frameTimelineBar');
+        bar.innerHTML = '';
+
+        const sliders = [];
+        const valDisplays = [];
+        const markers = [];
+
+        function refreshTimeline() {
+          const total = state.frameDelays.reduce((a, b) => a + b, 0);
+          markers.forEach((mk, i) => {
+            const pct = (state.frameDelays[i] / total) * 100;
+            mk.style.width = pct + '%';
+            mk.textContent = state.frameDelays[i] + 'ms';
+          });
+          $('frameTimelineTotal').textContent = `${total}ms / ${targetMs}ms`;
+          $('frameTimelineTotal').style.color = total === targetMs ? 'var(--success)' : 'var(--warning)';
+        }
+
+        state.frames.forEach((frameData, i) => {
+          // Timeline marker
+          const mk = document.createElement('div');
+          mk.className = 'frame-marker';
+          mk.title = `#${i + 1}`;
+          bar.appendChild(mk);
+          markers.push(mk);
+
+          // Delay card slider item
+          const item = document.createElement('div');
+          item.className = 'frame-delay-item';
+
+          const miniCanvas = document.createElement('canvas');
+          const mh = 28;
+          const mw = Math.round(w * mh / h);
+          miniCanvas.width = mw;
+          miniCanvas.height = mh;
+          const mCtx = miniCanvas.getContext('2d');
+          drawCheckerboard(mCtx, mw, mh, 4);
+          const tmp = document.createElement('canvas');
+          tmp.width = w; tmp.height = h;
+          tmp.getContext('2d').putImageData(frameData, 0, 0);
+          mCtx.drawImage(tmp, 0, 0, mw, mh);
+
+          const label = document.createElement('span');
+          label.className = 'frame-label';
+          label.textContent = `#${i + 1}`;
+
+          const slider = document.createElement('input');
+          slider.type = 'range';
+          slider.min = '10';
+          slider.max = String(maxPerFrame);
+          slider.step = '10';
+          slider.value = state.frameDelays[i];
+          sliders.push(slider);
+
+          const valDisplay = document.createElement('span');
+          valDisplay.className = 'delay-val';
+          valDisplay.textContent = state.frameDelays[i] + 'ms';
+          valDisplays.push(valDisplay);
+
+          slider.addEventListener('input', () => {
+            state.frameDelays[i] = parseInt(slider.value);
+            valDisplay.textContent = slider.value + 'ms';
+            refreshTimeline();
+            updateDelayTotal();
+          });
+
+          item.appendChild(miniCanvas);
+          item.appendChild(label);
+          item.appendChild(slider);
+          item.appendChild(valDisplay);
+          list.appendChild(item);
+        });
+
+        // Enable drag on timeline markers to adjust delays
+        markers.forEach((mk, i) => {
+          let dragging = false;
+          let startX = 0;
+          let startDelay = 0;
+
+          mk.addEventListener('mousedown', e => {
+            e.preventDefault();
+            dragging = true;
+            startX = e.clientX;
+            startDelay = state.frameDelays[i];
+            mk.classList.add('dragging');
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+          });
+
+          function onMove(e) {
+            if (!dragging) return;
+            const barWidth = bar.offsetWidth;
+            const totalMs = state.frameDelays.reduce((a, b) => a + b, 0);
+            const dx = e.clientX - startX;
+            const deltaMs = Math.round((dx / barWidth) * totalMs / 10) * 10;
+            const newVal = Math.max(10, startDelay + deltaMs);
+            state.frameDelays[i] = newVal;
+            sliders[i].value = newVal;
+            valDisplays[i].textContent = newVal + 'ms';
+            refreshTimeline();
+            updateDelayTotal();
+          }
+
+          function onUp() {
+            dragging = false;
+            mk.classList.remove('dragging');
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+          }
+        });
+
+        refreshTimeline();
+        updateDelayTotal();
+      }
+
+      function updateDelayTotal() {
+        const total = state.frameDelays.reduce((a, b) => a + b, 0);
+        const el = $('delayTotal');
+        const match = total === (state.playDuration * 1000);
+        el.textContent = `合計: ${total}ms / ${state.playDuration * 1000}ms (${(total / 1000).toFixed(2)}秒)`;
+        el.style.color = match ? 'var(--success)' : 'var(--warning)';
+        el.style.borderColor = match ? 'rgba(34,197,94,0.3)' : 'rgba(245,158,11,0.3)';
+      }
+
+      function grabFrame(time, w, h, sx, sy, sw, sh) {
+        return new Promise((resolve) => {
+          videoPlayer.currentTime = time;
+          const handler = () => {
+            videoPlayer.removeEventListener('seeked', handler);
+            workCanvas.width = w;
+            workCanvas.height = h;
+            // Clear with transparent
+            workCtx.clearRect(0, 0, w, h);
+            // Draw with crop: source (sx,sy,sw,sh) -> dest (0,0,w,h)
+            if (sx !== undefined && sw > 0 && sh > 0) {
+              workCtx.drawImage(videoPlayer, sx, sy, sw, sh, 0, 0, w, h);
+            } else {
+              workCtx.drawImage(videoPlayer, 0, 0, w, h);
+            }
+            let imgData = workCtx.getImageData(0, 0, w, h);
+
+            // Apply background removal
+            if (state.bgMode === 'chroma') {
+              imgData = applyChromaKey(imgData);
+            } else if (state.bgMode === 'eyedropper' && state.pickedColor) {
+              imgData = applyColorKey(imgData);
+            }
+            resolve(imgData);
+          };
+          videoPlayer.addEventListener('seeked', handler);
+        });
+      }
+
+      // ====== First Frame Selection ======
+      $('firstFrameTime').addEventListener('input', function () {
+        $('firstFrameTimeVal').textContent = parseFloat(this.value).toFixed(1) + 's';
+      });
+
+      $('captureFirstFrameBtn').addEventListener('click', async () => {
+        if (!state.frames.length) return;
+        const t = parseFloat($('firstFrameTime').value);
+        const vw = videoPlayer.videoWidth;
+        const vh = videoPlayer.videoHeight;
+        const cx = Math.round(vw * state.cropLeftPct / 100);
+        const cy = Math.round(vh * state.cropTopPct / 100);
+        const cw = vw - cx - Math.round(vw * state.cropRightPct / 100);
+        const ch = vh - cy - Math.round(vh * state.cropBottomPct / 100);
+        const w = state.outputWidth;
+        const h = state.outputHeight;
+
+        $('captureFirstFrameBtn').textContent = '取得中...';
+        $('captureFirstFrameBtn').disabled = true;
+        const frameData = await grabFrame(t, w, h, cx, cy, cw, ch);
+        state.frames[0] = frameData;
+
+        // Update first frame preview
+        updateFirstFramePreview(w, h, cx, cy, cw, ch);
+
+        // Update frame strip thumbnail #0
+        const thumbCanvases = frameStrip.querySelectorAll('canvas');
+        if (thumbCanvases[0]) {
+          const thumbH = 60;
+          const thumbW = Math.round(w * thumbH / h);
+          thumbCanvases[0].width = thumbW;
+          thumbCanvases[0].height = thumbH;
+          const tCtx = thumbCanvases[0].getContext('2d');
+          drawCheckerboard(tCtx, thumbW, thumbH, 6);
+          const tempC = document.createElement('canvas');
+          tempC.width = w; tempC.height = h;
+          tempC.getContext('2d').putImageData(frameData, 0, 0);
+          tCtx.drawImage(tempC, 0, 0, thumbW, thumbH);
+        }
+
+        $('captureFirstFrameBtn').textContent = '📸 1フレーム目を取り直す';
+        $('captureFirstFrameBtn').disabled = false;
+        extractStatus.textContent = '✅ 1フレーム目を更新しました';
+      });
+
+      async function updateFirstFramePreview(w, h, cx, cy, cw, ch) {
+        const t = parseFloat($('firstFrameTime').value);
+        const preview = $('firstFramePreview');
+        const ph = 50;
+        const pw = Math.round(w * ph / h);
+        preview.width = pw;
+        preview.height = ph;
+        const pCtx = preview.getContext('2d');
+        drawCheckerboard(pCtx, pw, ph, 4);
+
+        // Draw current frame 0 data
+        if (state.frames.length) {
+          const tmpC = document.createElement('canvas');
+          tmpC.width = w; tmpC.height = h;
+          tmpC.getContext('2d').putImageData(state.frames[0], 0, 0);
+          pCtx.drawImage(tmpC, 0, 0, pw, ph);
+        }
+      }
+
+      // ====== Background Removal ======
+      function rgbToHsl(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h, s, l = (max + min) / 2;
+        if (max === min) {
+          h = s = 0;
+        } else {
+          const d = max - min;
+          s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+          switch (max) {
+            case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+            case g: h = ((b - r) / d + 2) / 6; break;
+            case b: h = ((r - g) / d + 4) / 6; break;
+          }
+        }
+        return [h * 360, s * 100, l * 100];
+      }
+
+      function applyChromaKey(imgData) {
+        const data = imgData.data;
+        const sens = state.chromaSens;
+        const edgeSize = state.chromaEdge;
+        const isGreen = state.chromaColor === 'green';
+
+        const w = imgData.width;
+        const h = imgData.height;
+
+        // First pass: compute alpha mask using both HSL and RGB methods
+        const alphaMask = new Float32Array(w * h);
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          let keyStrength = 0;
+
+          if (isGreen) {
+            // RGB method: how much green dominates over red and blue
+            const greenExcess = g - Math.max(r, b);
+            const channelRange = Math.max(r, g, b) - Math.min(r, g, b);
+            if (greenExcess > 0 && channelRange > 10) {
+              // Normalize by sensitivity: higher sens = catches subtler greens
+              const rgbScore = Math.min(1, greenExcess / Math.max(1, 255 - sens * 3));
+              keyStrength = Math.max(keyStrength, rgbScore);
+            }
+            // Also catch bright/pale greens where g is dominant but difference is small
+            if (g > r && g > b && g > 50) {
+              const subtleness = (g - (r + b) / 2) / g;
+              if (subtleness > 0.05) {
+                const paleScore = Math.min(1, subtleness * (sens / 15));
+                keyStrength = Math.max(keyStrength, paleScore);
+              }
+            }
+          } else {
+            // Blue key
+            const blueExcess = b - Math.max(r, g);
+            const channelRange = Math.max(r, g, b) - Math.min(r, g, b);
+            if (blueExcess > 0 && channelRange > 10) {
+              const rgbScore = Math.min(1, blueExcess / Math.max(1, 255 - sens * 3));
+              keyStrength = Math.max(keyStrength, rgbScore);
+            }
+            if (b > r && b > g && b > 50) {
+              const subtleness = (b - (r + g) / 2) / b;
+              if (subtleness > 0.05) {
+                const paleScore = Math.min(1, subtleness * (sens / 15));
+                keyStrength = Math.max(keyStrength, paleScore);
+              }
+            }
+          }
+
+          // HSL method for additional coverage
+          const [hue, sat, lum] = rgbToHsl(r, g, b);
+          const targetHue = isGreen ? 120 : 240;
+          const hueRange = sens * 2;
+          const hueDiff = Math.abs(hue - targetHue);
+          const hueClose = Math.min(hueDiff, 360 - hueDiff);
+          if (hueClose < hueRange && sat > 5 && lum > 5 && lum < 97) {
+            const hueMatch = 1 - (hueClose / hueRange);
+            const satFactor = Math.min(1, sat / 30);
+            const hslScore = hueMatch * satFactor;
+            keyStrength = Math.max(keyStrength, hslScore);
+          }
+
+          // Apply gamma curve to make mask more decisive (less partial transparency)
+          if (keyStrength > 0) {
+            keyStrength = Math.pow(keyStrength, 0.6);
+            keyStrength = Math.min(1, keyStrength * 1.3);
+          }
+
+          alphaMask[i / 4] = keyStrength;
+        }
+
+        // Edge feathering (blur the mask for smooth edges)
+        if (edgeSize > 0) {
+          const temp = new Float32Array(alphaMask);
+          for (let pass = 0; pass < edgeSize; pass++) {
+            for (let y = 0; y < h; y++) {
+              for (let x = 0; x < w; x++) {
+                let sum = 0, count = 0;
+                for (let dy = -1; dy <= 1; dy++) {
+                  for (let dx = -1; dx <= 1; dx++) {
+                    const nx = x + dx, ny = y + dy;
+                    if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                      sum += temp[ny * w + nx];
+                      count++;
+                    }
+                  }
+                }
+                alphaMask[y * w + x] = sum / count;
+              }
+            }
+            temp.set(alphaMask);
+          }
+        }
+
+        // Apply mask + global despill
+        for (let i = 0; i < data.length; i += 4) {
+          const mask = alphaMask[i / 4];
+
+          // Apply transparency
+          if (mask > 0.01) {
+            data[i + 3] = Math.round(data[i + 3] * (1 - mask));
+          }
+
+          // Despill ALL remaining visible pixels
+          if (data[i + 3] > 0) {
+            if (isGreen) {
+              const avg = (data[i] + data[i + 2]) / 2;
+              if (data[i + 1] > avg) {
+                const spillAmount = data[i + 1] - avg;
+                const correctionStrength = mask > 0.01 ? 1.0 : 0.6;
+                data[i + 1] = Math.round(data[i + 1] - spillAmount * correctionStrength);
+              }
+            } else {
+              const avg = (data[i] + data[i + 1]) / 2;
+              if (data[i + 2] > avg) {
+                const spillAmount = data[i + 2] - avg;
+                const correctionStrength = mask > 0.01 ? 1.0 : 0.6;
+                data[i + 2] = Math.round(data[i + 2] - spillAmount * correctionStrength);
+              }
+            }
+          }
+
+          // Clean up: kill near-transparent pixels and zero RGB on fully transparent
+          if (data[i + 3] < 10) {
+            data[i] = 0;
+            data[i + 1] = 0;
+            data[i + 2] = 0;
+            data[i + 3] = 0;
+          }
+        }
+
+        return imgData;
+      }
+
+      function applyColorKey(imgData) {
+        const data = imgData.data;
+        const tol = state.eyedropperTol;
+        const kr = state.pickedColor.r;
+        const kg = state.pickedColor.g;
+        const kb = state.pickedColor.b;
+
+        for (let i = 0; i < data.length; i += 4) {
+          const dr = data[i] - kr;
+          const dg = data[i + 1] - kg;
+          const db = data[i + 2] - kb;
+          const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+          if (dist < tol) {
+            const fade = dist / tol;
+            data[i + 3] = Math.round(255 * fade);
+          }
+        }
+        return imgData;
+      }
+
+      function drawCheckerboard(ctx, w, h, size) {
+        ctx.fillStyle = '#2a2a40';
+        ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = '#363650';
+        for (let y = 0; y < h; y += size) {
+          for (let x = 0; x < w; x += size) {
+            if ((Math.floor(x / size) + Math.floor(y / size)) % 2 === 0) {
+              ctx.fillRect(x, y, size, size);
+            }
+          }
+        }
+      }
+
+      // ====== APNG Generation ======
+      generateBtn.addEventListener('click', generateAPNG);
+      $('regenerateBtn').addEventListener('click', generateAPNG);
+
+      async function generateAPNG() {
+        if (!state.frames.length) {
+          // Auto extract first
+          await extractFrames();
+          if (!state.frames.length) return;
+        }
+
+        generateBtn.disabled = true;
+        genProgress.classList.add('active');
+        genStatus.textContent = 'APNG を生成中...';
+        genProgressFill.style.width = '30%';
+
+        await new Promise(r => setTimeout(r, 50)); // Allow UI to update
+
+        const w = state.outputWidth;
+        const h = state.outputHeight;
+        const numFrames = state.frames.length;
+        // Use per-frame delays from the delay editor
+        const delays = [...state.frameDelays];
+
+        // Prepare frame buffers for UPNG
+        const frameBufs = state.frames.map(imgData => imgData.data.buffer.slice(0));
+
+        genProgressFill.style.width = '50%';
+        genStatus.textContent = 'エンコード中...';
+        await new Promise(r => setTimeout(r, 50));
+
+        // Try lossless first
+        let apngData = UPNG.encode(frameBufs, w, h, 0, delays);
+        let fileSize = apngData.byteLength;
+
+        genProgressFill.style.width = '70%';
+
+        // If too large, try lossy compression
+        if (fileSize > 300 * 1024) {
+          genStatus.textContent = `容量最適化中... (${(fileSize / 1024).toFixed(0)}KB → 300KB以下)`;
+          await new Promise(r => setTimeout(r, 50));
+
+          // Binary search for optimal color count
+          let lo = 32, hi = 256;
+          while (lo < hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            apngData = UPNG.encode(frameBufs, w, h, mid, delays);
+            fileSize = apngData.byteLength;
+            if (fileSize > 300 * 1024) {
+              hi = mid - 1;
+            } else {
+              lo = mid + 1;
+            }
+          }
+          // Final encode with best value
+          apngData = UPNG.encode(frameBufs, w, h, Math.max(16, lo - 1), delays);
+          fileSize = apngData.byteLength;
+
+          if (fileSize > 300 * 1024) {
+            // Aggressive compression
+            apngData = UPNG.encode(frameBufs, w, h, 16, delays);
+            fileSize = apngData.byteLength;
+          }
+        }
+
+        genProgressFill.style.width = '90%';
+        genStatus.textContent = 'ループ回数を設定中...';
+        await new Promise(r => setTimeout(r, 50));
+
+        // Patch the acTL chunk to set num_plays (loop count)
+        apngData = patchAPNGLoopCount(apngData, state.loopCount);
+        fileSize = apngData.byteLength;
+
+        genProgressFill.style.width = '100%';
+
+        // Create blob and preview
+        state.apngBlob = new Blob([apngData], { type: 'image/png' });
+        const url = URL.createObjectURL(state.apngBlob);
+        apngImage.src = url;
+        apngPreview.style.display = 'flex';
+
+        const num = String(state.currentNumber).padStart(2, '0');
+        genStatus.textContent = `✅ 生成完了！ (${(fileSize / 1024).toFixed(1)}KB, ${state.playDuration}s×${state.loopCount}ループ)`;
+
+        // Auto-save to folder if selected
+        const saveResult = $('saveResult');
+        let savedFiles = [];
+
+        if (state.stampDirHandle) {
+          try {
+            await saveToFolder(state.stampDirHandle, state.apngBlob, num + '.png');
+            savedFiles.push(`🎫 ${state.stampDirHandle.name}/${num}.png`);
+          } catch (e) {
+            savedFiles.push(`⚠️ スタンプ保存失敗: ${e.message}`);
+          }
+        }
+
+        // Generate and save emoji if enabled
+        if (state.generateEmoji) {
+          genStatus.textContent = '絵文字版を生成中 (180×180px)...';
+          await new Promise(r => setTimeout(r, 50));
+          state.emojiApngBlob = generateEmojiAPNG(apngData);
+          const emojiSize = (state.emojiApngBlob.size / 1024).toFixed(1);
+
+          if (state.emojiDirHandle) {
+            try {
+              const emojiNum = String(state.currentNumber).padStart(3, '0');
+              await saveToFolder(state.emojiDirHandle, state.emojiApngBlob, emojiNum + '.png');
+              savedFiles.push(`😀 ${state.emojiDirHandle.name}/${emojiNum}.png (${emojiSize}KB)`);
+            } catch (e) {
+              savedFiles.push(`⚠️ 絵文字保存失敗: ${e.message}`);
+            }
+          } else {
+            savedFiles.push(`😀 絵文字生成済み (${emojiSize}KB) — フォルダ未選択`);
+          }
+        }
+
+        genStatus.textContent = `✅ ${num}.png 生成完了！ (${(fileSize / 1024).toFixed(1)}KB)`;
+
+        if (savedFiles.length > 0) {
+          saveResult.innerHTML = savedFiles.join('<br>');
+          saveResult.className = 'save-result show success';
+        }
+
+        // Auto-increment number
+        if (state.currentNumber < 24) {
+          state.currentNumber++;
+          updateNumDisplay();
+        }
+
+        generateBtn.disabled = false;
+        setTimeout(() => { genProgress.classList.remove('active'); }, 500);
+
+        updateValidation(fileSize);
+      }
+
+      // ====== APNG Binary Patch: Set loop count in acTL chunk ======
+      function patchAPNGLoopCount(apngArrayBuffer, numPlays) {
+        const data = new Uint8Array(apngArrayBuffer);
+        // PNG signature is 8 bytes, then chunks follow
+        // Each chunk: 4 bytes length, 4 bytes type, [length] bytes data, 4 bytes CRC
+        let offset = 8; // Skip PNG signature
+
+        while (offset < data.length) {
+          const chunkLen = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+          const chunkType = String.fromCharCode(data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7]);
+
+          if (chunkType === 'acTL') {
+            // acTL chunk data: num_frames (4 bytes) + num_plays (4 bytes)
+            // num_plays is at offset + 8 (type) + 4 (num_frames) = offset + 12
+            const numPlaysOffset = offset + 8 + 4;
+            data[numPlaysOffset] = (numPlays >> 24) & 0xFF;
+            data[numPlaysOffset + 1] = (numPlays >> 16) & 0xFF;
+            data[numPlaysOffset + 2] = (numPlays >> 8) & 0xFF;
+            data[numPlaysOffset + 3] = numPlays & 0xFF;
+
+            // Recalculate CRC for this chunk (covers type + data)
+            const crcStart = offset + 4; // start of type
+            const crcEnd = offset + 8 + chunkLen; // end of data
+            const crc = crc32(data, crcStart, crcEnd);
+            data[crcEnd] = (crc >> 24) & 0xFF;
+            data[crcEnd + 1] = (crc >> 16) & 0xFF;
+            data[crcEnd + 2] = (crc >> 8) & 0xFF;
+            data[crcEnd + 3] = crc & 0xFF;
+
+            break;
+          }
+
+          // Move to next chunk: 4(len) + 4(type) + chunkLen(data) + 4(crc)
+          offset += 12 + chunkLen;
+        }
+
+        return data.buffer;
+      }
+
+      // CRC32 implementation for PNG chunks
+      function crc32(data, start, end) {
+        // Build CRC table
+        if (!crc32.table) {
+          crc32.table = new Uint32Array(256);
+          for (let n = 0; n < 256; n++) {
+            let c = n;
+            for (let k = 0; k < 8; k++) {
+              c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+            }
+            crc32.table[n] = c;
+          }
+        }
+        let crc = 0xFFFFFFFF;
+        for (let i = start; i < end; i++) {
+          crc = crc32.table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+        }
+        return (crc ^ 0xFFFFFFFF) >>> 0;
+      }
+
+      // ====== Save Settings ======
+      $('pickStampFolderBtn').addEventListener('click', async () => {
+        try {
+          state.stampDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+          $('stampFolderPath').textContent = state.stampDirHandle.name;
+          $('stampFolderPath').classList.add('active');
+        } catch (e) { /* user cancelled */ }
+      });
+
+      $('pickEmojiFolderBtn').addEventListener('click', async () => {
+        try {
+          state.emojiDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+          $('emojiFolderPath').textContent = state.emojiDirHandle.name;
+          $('emojiFolderPath').classList.add('active');
+        } catch (e) { /* user cancelled */ }
+      });
+
+      const emojiToggle = $('emojiToggle');
+      emojiToggle.addEventListener('click', () => {
+        state.generateEmoji = !state.generateEmoji;
+        emojiToggle.classList.toggle('on', state.generateEmoji);
+        $('emojiFolderSection').style.display = state.generateEmoji ? 'block' : 'none';
+      });
+
+      // Number controls
+      function updateNumDisplay() {
+        $('numDisplay').innerHTML = String(state.currentNumber).padStart(2, '0') + '<small>/24</small>';
+      }
+      $('numPrev').addEventListener('click', () => {
+        state.currentNumber = Math.max(1, state.currentNumber - 1);
+        updateNumDisplay();
+      });
+      $('numNext').addEventListener('click', () => {
+        state.currentNumber = Math.min(24, state.currentNumber + 1);
+        updateNumDisplay();
+      });
+
+      // ====== Download ======
+      downloadBtn.addEventListener('click', () => {
+        if (!state.apngBlob) return;
+        const num = String(state.currentNumber).padStart(2, '0');
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(state.apngBlob);
+        a.download = num + '.png';
+        a.click();
+      });
+
+      // Save to folder
+      async function saveToFolder(dirHandle, blob, filename) {
+        const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      }
+
+      // Generate emoji APNG (180x180)
+      function generateEmojiAPNG(stampApngData) {
+        const w = 180, h = 180;
+        const srcW = state.outputWidth;
+        const srcH = state.outputHeight;
+        const delays = [...state.frameDelays];
+
+        // Resize each frame to 180x180 (fit within, center)
+        const emojiCanvas = document.createElement('canvas');
+        emojiCanvas.width = w;
+        emojiCanvas.height = h;
+        const eCtx = emojiCanvas.getContext('2d');
+
+        const scale = Math.min(w / srcW, h / srcH);
+        const dw = Math.round(srcW * scale);
+        const dh = Math.round(srcH * scale);
+        const dx = Math.round((w - dw) / 2);
+        const dy = Math.round((h - dh) / 2);
+
+        const frameBufs = state.frames.map(imgData => {
+          eCtx.clearRect(0, 0, w, h);
+          const tmpC = document.createElement('canvas');
+          tmpC.width = srcW; tmpC.height = srcH;
+          tmpC.getContext('2d').putImageData(imgData, 0, 0);
+          eCtx.drawImage(tmpC, dx, dy, dw, dh);
+          return eCtx.getImageData(0, 0, w, h).data.buffer.slice(0);
+        });
+
+        // Encode
+        let apngData = UPNG.encode(frameBufs, w, h, 0, delays);
+        let fileSize = apngData.byteLength;
+
+        // Compress if needed
+        if (fileSize > 300 * 1024) {
+          let lo = 32, hi = 256;
+          while (lo < hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            apngData = UPNG.encode(frameBufs, w, h, mid, delays);
+            if (apngData.byteLength > 300 * 1024) hi = mid - 1;
+            else lo = mid + 1;
+          }
+          apngData = UPNG.encode(frameBufs, w, h, Math.max(16, lo - 1), delays);
+        }
+
+        // Patch loop count
+        apngData = patchAPNGLoopCount(apngData, state.loopCount);
+        return new Blob([apngData], { type: 'image/png' });
+      }
+
+      // ====== Validation ======
+      function updateValidation(fileSize) {
+        const w = state.outputWidth;
+        const h = state.outputHeight;
+        const numFrames = state.frameCount;
+        const loops = state.loopCount;
+        const playDur = state.playDuration; // Exact integer seconds
+        const totalDuration = playDur * loops;
+
+        // Size
+        const sizeOk = w <= 320 && h <= 270 && (w >= 270 || h >= 270);
+        setValidation('valSize', `${w}×${h}px`, sizeOk ? 'pass' : (w <= 320 && h <= 270 ? 'warn' : 'fail'));
+
+        // Frames
+        const framesOk = numFrames >= 5 && numFrames <= 20;
+        setValidation('valFrames', `${numFrames} フレーム`, framesOk ? 'pass' : 'fail');
+
+        // File size
+        if (fileSize !== undefined) {
+          const sizeKB = (fileSize / 1024).toFixed(1);
+          const fsOk = fileSize <= 300 * 1024;
+          setValidation('valFileSize', `${sizeKB}KB / 300KB`, fsOk ? 'pass' : 'fail');
+        } else {
+          setValidation('valFileSize', '—', '');
+        }
+
+        // Duration — must be exact 1,2,3,4s total
+        const durOk = totalDuration >= 1 && totalDuration <= 4;
+        setValidation('valDuration', `${playDur}s × ${loops} = ${totalDuration}s`,
+          durOk ? 'pass' : 'fail');
+
+        // Loop
+        const loopOk = loops >= 1 && loops <= 4;
+        setValidation('valLoop', `${loops}回`, loopOk ? 'pass' : 'fail');
+
+        // Background
+        const bgOk = state.bgMode !== 'none';
+        setValidation('valBg', state.bgMode === 'none' ? 'なし（不透過）' :
+          state.bgMode === 'chroma' ? 'クロマキー除去' : 'スポイト除去',
+          state.bgMode === 'none' ? 'warn' : 'pass');
+      }
+
+      function setValidation(id, text, status) {
+        const el = $(id);
+        el.className = 'validation-item' + (status ? ' ' + status : '');
+        el.querySelector('.value').textContent = text;
+      }
+
+    })();
+  </script>
+
+</body>
+
+</html>
